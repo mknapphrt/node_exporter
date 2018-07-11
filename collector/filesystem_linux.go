@@ -30,7 +30,20 @@ const (
 	readOnly              = 0x1 // ST_RDONLY
 )
 
-// GetStats returns filesystem stats.
+// mountLocks is a map of channels that are used to immitate a lock on the stat call
+// for each mount point. Before calling stat, the thread receives on the channel, and
+// writes to it after it's done. If it's unable to receive, the prevoius call never
+// ended, which indicates a stuck mount.
+var mountLocks = make(map[string]chan struct{}, 1)
+
+// addLock is used to safely add new channels for the mount point to mountLocks,
+// without unintentionally overwriting an existing channel.
+var addLock = make(chan struct{}, 1)
+
+func init() {
+	addLock <- struct{}{}
+}
+
 func (c *filesystemCollector) GetStats() ([]filesystemStats, error) {
 	mps, err := mountPointDetails()
 	if err != nil {
@@ -47,8 +60,33 @@ func (c *filesystemCollector) GetStats() ([]filesystemStats, error) {
 			continue
 		}
 
-		buf := new(syscall.Statfs_t)
-		err := syscall.Statfs(labels.mountPoint, buf)
+		// Check if a channel exists for this mount point already
+		select {
+		case <-addLock:
+			if _, ok := mountLocks[labels.mountPoint]; !ok {
+				mountLocks[labels.mountPoint] = make(chan struct{}, 1)
+				mountLocks[labels.mountPoint] <- struct{}{}
+			}
+			addLock <- struct{}{}
+		default:
+			continue
+		}
+
+		var buf *syscall.Statfs_t
+
+		select {
+		case <-mountLocks[labels.mountPoint]:
+			// Acquired lock, continue with stat call
+			buf, err = getStatfs(labels.mountPoint)
+		default:
+			stats = append(stats, filesystemStats{
+				labels:      labels,
+				deviceError: 1,
+			})
+			log.Debugf("Mount point: %q is stuck, monitoring this mount will resume when the mount recovers.", labels.mountPoint)
+			continue
+		}
+
 		if err != nil {
 			stats = append(stats, filesystemStats{
 				labels:      labels,
@@ -74,6 +112,15 @@ func (c *filesystemCollector) GetStats() ([]filesystemStats, error) {
 		})
 	}
 	return stats, nil
+}
+
+func getStatfs(mountPoint string) (*syscall.Statfs_t, error) {
+	defer func() {
+		mountLocks[mountPoint] <- struct{}{}
+	}()
+	buf := new(syscall.Statfs_t)
+	err := syscall.Statfs(mountPoint, buf)
+	return buf, err
 }
 
 func mountPointDetails() ([]filesystemLabels, error) {

@@ -15,6 +15,7 @@ package collector
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
@@ -90,8 +91,10 @@ type mountStatsCollector struct {
 
 // used to uniquely identify an NFS mount to prevent duplicates
 type nfsDeviceIdentifier struct {
-	Device   string
-	Protocol string
+	Device     string
+	Protocol   string
+	MountPoint string
+	SourcePort uint64
 }
 
 func init() {
@@ -116,8 +119,8 @@ func NewMountStatsCollector() (Collector, error) {
 	)
 
 	var (
-		labels   = []string{"export", "protocol"}
-		opLabels = []string{"export", "protocol", "operation"}
+		labels   = []string{"export", "protocol", "mountpoint", "srcport"}
+		opLabels = []string{"export", "protocol", "mountpoint", "srcport", "operation"}
 	)
 
 	return &mountStatsCollector{
@@ -512,7 +515,7 @@ func (c *mountStatsCollector) Update(ch chan<- prometheus.Metric) error {
 			continue
 		}
 
-		deviceIdentifier := nfsDeviceIdentifier{m.Device, stats.Transport.Protocol}
+		deviceIdentifier := nfsDeviceIdentifier{m.Device, stats.Transport.Protocol, m.Mount, stats.Transport.Port}
 		i := deviceList[deviceIdentifier]
 		if i {
 			log.Debugf("Skipping duplicate device entry %q", deviceIdentifier)
@@ -520,19 +523,21 @@ func (c *mountStatsCollector) Update(ch chan<- prometheus.Metric) error {
 		}
 
 		deviceList[deviceIdentifier] = true
-		c.updateNFSStats(ch, m.Device, stats.Transport.Protocol, stats)
+		c.updateNFSStats(ch, m.Device, stats.Transport.Protocol, m.Mount, strconv.FormatUint(stats.Transport.Port, 10), stats)
 	}
 
 	return nil
 }
 
-func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export string, protocol string, s *procfs.MountStatsNFS) {
+func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export string, protocol string, mountpoint string, srcport string, s *procfs.MountStatsNFS) {
 	ch <- prometheus.MustNewConstMetric(
 		c.NFSAgeSecondsTotal,
 		prometheus.CounterValue,
 		s.Age.Seconds(),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -541,6 +546,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.Read),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -549,6 +556,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.Write),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -557,6 +566,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.DirectRead),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -565,6 +576,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.DirectWrite),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -573,6 +586,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.ReadTotal),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -581,6 +596,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.WriteTotal),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -589,6 +606,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.ReadPages),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -597,6 +616,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Bytes.WritePages),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -605,6 +626,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.Bind),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -613,6 +636,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.Connect),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -621,6 +646,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		s.Transport.IdleTime.Seconds(),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -629,6 +656,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.Sends),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -637,6 +666,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.Receives),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -645,6 +676,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.BadTransactionIDs),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -653,6 +686,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.CumulativeBacklog),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -661,6 +696,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.MaximumRPCSlotsUsed),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -669,6 +706,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.CumulativeSendingQueue),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -677,6 +716,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Transport.CumulativePendingQueue),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	for _, op := range s.Operations {
@@ -686,6 +727,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			float64(op.Requests),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -695,6 +738,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			float64(op.Transmissions),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -704,6 +749,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			float64(op.MajorTimeouts),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -713,6 +760,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			float64(op.BytesSent),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -722,6 +771,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			float64(op.BytesReceived),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -731,6 +782,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			op.CumulativeQueueTime.Seconds(),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -740,6 +793,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			op.CumulativeTotalResponseTime.Seconds(),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 
@@ -749,6 +804,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 			op.CumulativeTotalRequestTime.Seconds(),
 			export,
 			protocol,
+			mountpoint,
+			srcport,
 			op.Operation,
 		)
 	}
@@ -759,6 +816,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.InodeRevalidate),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -767,6 +826,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.DnodeRevalidate),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -775,6 +836,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.DataInvalidate),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -783,6 +846,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.AttributeInvalidate),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -791,6 +856,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSOpen),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -799,6 +866,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSLookup),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -807,6 +876,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSAccess),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -815,6 +886,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSUpdatePage),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -823,6 +896,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSReadPage),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -831,6 +906,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSReadPages),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -839,6 +916,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSWritePage),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -847,6 +926,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSWritePages),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -855,6 +936,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSGetdents),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -863,6 +946,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSSetattr),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -871,6 +956,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSFlush),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -879,6 +966,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSFsync),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -887,6 +976,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSLock),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -895,6 +986,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.VFSFileRelease),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -903,6 +996,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.Truncation),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -911,6 +1006,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.WriteExtension),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -919,6 +1016,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.SillyRename),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -927,6 +1026,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.ShortRead),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -935,6 +1036,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.ShortWrite),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -943,6 +1046,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.JukeboxDelay),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -951,6 +1056,8 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.PNFSRead),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
@@ -959,5 +1066,7 @@ func (c *mountStatsCollector) updateNFSStats(ch chan<- prometheus.Metric, export
 		float64(s.Events.PNFSWrite),
 		export,
 		protocol,
+		mountpoint,
+		srcport,
 	)
 }
